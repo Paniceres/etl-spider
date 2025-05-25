@@ -47,3 +47,40 @@ The benches above were ran on a mac m1, spider on linux arm machines performs ab
 ## Issues
 
 Please submit a Github issue for any issues found.
+
+## Local Development Setup
+
+To set up the project locally, it's highly recommended to use a Python virtual environment. This helps to isolate project dependencies and avoid conflicts with your system's Python packages.
+
+Follow these steps:
+
+1. Install the necessary build tools:
+
+   * **Python**: Ensure you have Python installed.
+   * **Rust**: Install Rust via rustup (https://rustup.rs/). This will include Cargo, which is required for building the Rust code.
+   * **Maturin**: Install maturin using `pipx install maturin` (or `pip install maturin` if you prefer). Maturin is needed to build the Python package from the Rust code.
+
+2. Create a Python virtual environment:
+
+   ```bash
+   python -m venv .venv
+   ```
+
+2. Activate the virtual environment:
+
+   * On macOS and Linux:
+     ```bash
+     source .venv/bin/activate
+     ```
+   * On Windows:
+     ```bash
+     .venv\Scripts\activate
+     ```
+
+3. Install the project in editable mode with maturin:
+
+   ```bash
+   maturin develop
+   ```
+
+

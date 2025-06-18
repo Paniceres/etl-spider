@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Buenos Aires",
+    "coordinates": { "latitude": -34.6037, "longitude": -58.3816 }
+  },
+  {
+    "name": "Cordoba",
+    "coordinates": { "latitude": -31.4201, "longitude": -64.1888 }
+  }
+]
+[]

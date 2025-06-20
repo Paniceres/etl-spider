@@ -40,7 +40,7 @@ def main():
     os.makedirs(LOG_DIR, exist_ok=True)
 
     # --- Sidebar (Configuration for Scraping) ---
-    st.sidebar.header("Configuración de Tarea de Scraping")
+    st.sidebar.header("🕷️ Configuración de Scraping")
 
     # Load cities from cities.json
     cities = {}
@@ -57,23 +57,32 @@ def main():
     city_options = list(cities.keys())
     selected_cities = st.sidebar.multiselect("Seleccionar Ciudad(es) a Procesar", options=city_options)
 
+ # Use session state to keep track of keyword text area values
+ if 'keyword_values' not in st.session_state:
+ st.session_state.keyword_values = {}
+
     # Text areas for keywords for selected cities
- with st.sidebar.expander("Configurar Keywords por Ciudad"):
+    with st.sidebar.expander("Configurar Keywords por Ciudad"):
  for city in selected_cities:
- # Load existing keywords if available
- keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city}.csv")
- initial_keywords = ""
+ # Load existing keywords if not already in session state
+ if city not in st.session_state.keyword_values:
+                keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city}.csv")
+                initial_keywords = ""
  if os.path.exists(keywords_file):
  with open(keywords_file, 'r') as f:
  try:
- initial_keywords = f.read()
+                            initial_keywords = f.read()
  except Exception as e:
- st.error(f"Error reading keywords for {city}: {e}") # Use st.error in main area for better visibility
- keywords = st.text_area(f"Keywords para {city}", value=initial_keywords, height=100, key=f"keywords_{city}_text")
+ # Display error related to file reading in the main area
+ st.error(f"Error al leer las palabras clave para {city} desde el archivo: {e}")
+                st.session_state.keyword_values[city] = initial_keywords
+
+            # Display the text area and update session state on change
+ st.session_state.keyword_values[city] = st.text_area(f"Keywords para {city}", value=st.session_state.keyword_values.get(city, ""), height=100, key=f"keywords_{city}_text")
 
  if st.button(f"Guardar Keywords para {city}", key=f"save_button_{city}"):
- save_keywords(city, keywords)
- st.success(f"Keywords saved for {city}.")
+ save_keywords(city, st.session_state.keyword_values[city])
+ st.success(f"Palabras clave guardadas para {city}.")
 
 
  # Options for Scraping (Depth and Emails)
@@ -111,6 +120,9 @@ def main():
             
             config["depth"] = depth
             config["extract_emails"] = extract_emails
+
+ # Placeholder for displaying scraping status in main area
+ scraping_status_placeholder = st.empty()
  with st.spinner("Scraping iniciado..."):
  try: # Wrap the scraping logic in try-except for better error reporting
  scraped_data = run_spider(config) # Call the scraping function
@@ -118,6 +130,9 @@ def main():
  except Exception as e: # Catch any exceptions during scraping
  st.error(f"Error durante el scraping: {e}") # Display error message in main area
 
+ if 'scraped_data' in locals():
+ if not scraped_data.empty:
+                scraping_status_placeholder.success("Scraping completado!")
     # --- Main Area (Display Raw Data) ---
 
     tab_crudos, tab_logs = st.tabs(["Crudos", "Logs"])

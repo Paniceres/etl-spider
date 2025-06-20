@@ -1,5 +1,5 @@
+Este archivo lista potenciales mejoras o refinamientos para el proyecto, que pueden ser utilizados como prompts para solicitar la asistencia del modelo de lenguaje.
+
 ## Estado de las Mejoras
 | Título | Prioridad | Estado | Justificación |
 |--------|-----------|--------|---------------|
-| Añadir mensajes de error visuales | Alta 🚨 | [ ] Pendiente | Usar `st.error()` para errores críticos. |
-| Validar permisos de escritura en `/data/` | Alta 🚨 | [ ] Pendiente | Evitar fallos en escritura de CSVs. |

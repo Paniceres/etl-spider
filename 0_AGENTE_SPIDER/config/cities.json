@@ -1,11 +1,6 @@
-[
-  {
-    "name": "Buenos Aires",
-    "coordinates": { "latitude": -34.6037, "longitude": -58.3816 }
-  },
-  {
-    "name": "Cordoba",
-    "coordinates": { "latitude": -31.4201, "longitude": -64.1888 }
-  }
-]
-[]
+"gmaps_coordinates": {
+    "neuquen": { "latitude": -38.9516, "longitude": -68.0591, "radius": 10000, "zoom": 14 },
+    "general_roca": { "latitude": -39.0333, "longitude": -67.5833, "radius": 8000, "zoom": 14 },
+    "cipolletti": { "latitude": -38.9335, "longitude": -67.9904, "radius": 8000, "zoom": 14 },
+    "allen": { "latitude": -38.9777, "longitude": -67.8263, "radius": 5000, "zoom": 15 }
+}

@@ -2,7 +2,7 @@
 
 The [spider](https://github.com/spider-rs/spider) project ported to Python.
 
-## Getting Started
+## Getting Started 
 
 1. `pip install spider_rs`
 

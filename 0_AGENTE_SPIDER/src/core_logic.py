@@ -1,6 +1,3 @@
-<<<<<<< Updated upstream
- 
-=======
 import pandas as pd
 import logging
 import os
@@ -238,4 +235,3 @@ def parse_html(html: str, rules: dict) -> dict:
     # TODO: Agregar ciudad y keyword al diccionario `extracted_data` si es posible (necesita contexto de la Request/Response)
 
     return extracted_data # Retorna el diccionario de datos extraídos para un solo ítem
->>>>>>> Stashed changes

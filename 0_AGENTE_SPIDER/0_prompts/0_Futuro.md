@@ -1,4 +1,5 @@
-🚀 Prompts para el Futuro
+# archivado
 
-Este archivo se utiliza para planificar y documentar las tareas o features futuras que se desean implementar con la ayuda del asistente de IA.
-Aquí puedes detallar las ideas, mejoras o nuevas funcionalidades que te gustaría desarrollar más adelante.
+Este archivo sirve para archivar tareas completadas o prompts que fueron ejecutados con éxito utilizando el asistente de IA.
+Ayuda a mantener un registro del trabajo realizado y a limpiar los archivos de prompts activos.
+

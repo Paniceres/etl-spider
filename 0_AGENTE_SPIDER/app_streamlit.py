@@ -1,16 +1,33 @@
 import streamlit as st
 import pandas as pd
+import json
+
+import logging
 import os
-
-# Define file paths based on the provided structure
+import logging.handlers
+from 0_AGENTE_SPIDER.src.core_logic import run_spider
+# Define file paths
 CONFIG_DIR = "0_agente_spider/config"
-# Modified to point to the raw data directory
-RAW_DATA_DIR = "0_agente_spider/data/raw" # Modified to point to the raw data directory
-PARAMETERS_FILE = os.path.join(CONFIG_DIR, "parameters_default.json")
+RAW_DATA_DIR = "0_AGENTE_SPIDER/data/raw" # Modified to point to the raw data directory
+CITIES_FILE = os.path.join(CONFIG_DIR, "cities.json")
 
-# Ensure the raw data directory exists
-os.makedirs(RAW_DATA_DIR, exist_ok=True)
+LOG_DIR = "0_AGENTE_SPIDER/data/logs"
+LOG_FILE = os.path.join(LOG_DIR, "spider.log")
 
+# Configure Streamlit logging
+STREAMLIT_LOG_FILE = os.path.join(LOG_DIR, "streamlit.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.handlers.RotatingFileHandler(STREAMLIT_LOG_FILE, maxBytes=1024 * 1024, backupCount=5)
+    ]
+)
+def save_keywords(city, keywords):
+    """Saves the keywords string to a city-specific CSV file."""
+    keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city}.csv")
+    with open(keywords_file, "w") as f:
+        f.write(keywords)
 
 def main():
     """
@@ -18,21 +35,21 @@ def main():
     """
     st.set_page_config(layout="wide")
 
+    # Ensure necessary directories exist
+    os.makedirs(RAW_DATA_DIR, exist_ok=True)
+    os.makedirs(LOG_DIR, exist_ok=True)
+
     # --- Sidebar (Configuration for Scraping) ---
-<<<<<<< Updated upstream
-    st.sidebar.header("Configuración del Spider")
-=======
     st.sidebar.header("🕷️ Configuración de Scraping")
->>>>>>> Stashed changes
 
-    # TODO: Add st.multiselect for "Seleccionar Ciudad(es)"
-    # TODO: Add st.text_area and button for "Keywords para X"
-    # TODO: Add st.slider or st.number_input for "depth"
-    # TODO: Add st.checkbox for "¿Extraer Emails?"
+    # Load cities from cities.json
+    cities = {}
+    try:
+        with open(CITIES_FILE, 'r') as f:
+            cities = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        st.sidebar.warning(f"'{CITIES_FILE}' not found or is empty. Please add city data.")
 
-<<<<<<< Updated upstream
-    # TODO: Add st.button for "🚀 Iniciar Scraping"
-=======
     # Check if cities are loaded (excluding the example data if it exists and is the only entry)
     if not cities or (len(cities) == 1 and list(cities.keys())[0] == 'Example City'):
          st.sidebar.info(f"Please populate '{CITIES_FILE}' with your actual city data.")
@@ -112,30 +129,46 @@ def main():
  st.success("Scraping completado!") # Success message
  except Exception as e: # Catch any exceptions during scraping
  st.error(f"Error durante el scraping: {e}") # Display error message in main area
->>>>>>> Stashed changes
 
  if 'scraped_data' in locals():
  if not scraped_data.empty:
                 scraping_status_placeholder.success("Scraping completado!")
     # --- Main Area (Display Raw Data) ---
-    st.title("🕷️ Agente Spider GOSOM")
 
-    # This agent focuses only on generating raw data.
-    # Consolidation, chunking, and detailed statistics are handled by the Central ETL process.
-    st.header("Datos Crudos Generados")
+    tab_crudos, tab_logs = st.tabs(["Crudos", "Logs"])
 
     # List available raw CSV files
-    raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
+    with tab_crudos:
+        st.header("Datos Crudos Generados")
+        raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
 
-    if not raw_files:
-        st.info("No hay archivos CSV crudos generados aún.")
-    else:
-        selected_file = st.selectbox("Seleccionar archivo crudo para previsualizar:", raw_files)
-        file_path = os.path.join(RAW_DATA_DIR, selected_file)
-        df_raw = pd.read_csv(file_path)
+        if not raw_files:
+            st.info("No hay archivos CSV crudos generados aún.")
+        else:
+            selected_file = st.selectbox("Seleccionar archivo crudo para previsualizar:", raw_files)
+            file_path = os.path.join(RAW_DATA_DIR, selected_file)
+            try:
+                df_raw = pd.read_csv(file_path)
+                # Display summary of the DataFrame
+                st.info(f"Archivo: {selected_file} | Filas: {df_raw.shape[0]} | Columnas: {df_raw.shape[1]}")
+            except Exception as e:
+                st.error(f"Error al cargar el archivo CSV '{selected_file}': {e}")
+            st.dataframe(df_raw)
+            st.download_button(label=f"Descargar {selected_file}", data=df_raw.to_csv(index=False), file_name=selected_file, mime="text/csv")
 
-        st.dataframe(df_raw)
-        st.download_button(label=f"Descargar {selected_file}", data=df_raw.to_csv(index=False), file_name=selected_file, mime="text/csv")
+        # Display the scraped data after the run (if available)
+        if 'scraped_data' in locals() and not scraped_data.empty:
+            st.subheader("Últimos Datos Scrapeados (Preview)")
+            st.dataframe(scraped_data)
+
+    with tab_logs:
+        st.header("Registros de Ejecución")
+        if os.path.exists(LOG_FILE):
+            with open(LOG_FILE, "r") as f:
+                log_content = f.read()
+            st.text_area("Contenido del Log", log_content, height=400)
+        else:
+            st.info("Log file not found.")
 
 
 if __name__ == "__main__":

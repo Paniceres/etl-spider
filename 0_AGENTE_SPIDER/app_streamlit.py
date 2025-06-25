@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import asyncio  # Importamos asyncio
 
 import logging
 import os
@@ -29,7 +30,8 @@ def save_keywords(city, keywords):
     with open(keywords_file, "w") as f:
         f.write(keywords)
 
-def main():
+async def main():
+
     """
     Main function to run the Streamlit application for the Spider agent.
     """
@@ -125,7 +127,8 @@ def main():
  scraping_status_placeholder = st.empty()
  with st.spinner("Scraping iniciado..."):
  try: # Wrap the scraping logic in try-except for better error reporting
- scraped_data = run_spider(config) # Call the scraping function
+ scraped_data = await run_spider(config) # Call the scraping function
+function
  st.success("Scraping completado!") # Success message
  except Exception as e: # Catch any exceptions during scraping
  st.error(f"Error durante el scraping: {e}") # Display error message in main area
@@ -172,4 +175,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Esto ejecuta la función principal asíncrona
+    asyncio.run(main())

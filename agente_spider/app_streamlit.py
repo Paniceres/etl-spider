@@ -6,13 +6,14 @@ import asyncio  # Importamos asyncio
 import logging
 import os
 import logging.handlers
-from 0_AGENTE_SPIDER.src.core_logic import run_spider
+from agente_spider.src.core_logic import run_spider
+
 # Define file paths
-CONFIG_DIR = "0_agente_spider/config"
-RAW_DATA_DIR = "0_AGENTE_SPIDER/data/raw" # Modified to point to the raw data directory
+CONFIG_DIR = "agente_spider/config"
+RAW_DATA_DIR = "agente_spider/data/raw" # Modified to point to the raw data directory
 CITIES_FILE = os.path.join(CONFIG_DIR, "cities.json")
 
-LOG_DIR = "0_AGENTE_SPIDER/data/logs"
+LOG_DIR = "agente_spider/data/logs"
 LOG_FILE = os.path.join(LOG_DIR, "spider.log")
 
 # Configure Streamlit logging

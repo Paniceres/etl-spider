@@ -1,182 +1,215 @@
+# 0_AGENTE_SPIDER/app_streamlit.py
 import streamlit as st
 import pandas as pd
 import json
-import asyncio  # Importamos asyncio
-
-import logging
+import asyncio
 import os
-import logging.handlers
-from agente_spider.src.core_logic import run_spider
+import logging
+from logging.handlers import RotatingFileHandler
+import sys
+from datetime import datetime
 
-# Define file paths
-CONFIG_DIR = "agente_spider/config"
-RAW_DATA_DIR = "agente_spider/data/raw"  # Modified to point to the raw data directory
-CITIES_FILE = os.path.join(CONFIG_DIR, "cities.json")
+# --- Añadir src al PYTHONPATH para importar core_logic ---
+APP_ROOT_DIR = os.path.dirname(__file__)
+SRC_DIR = os.path.join(APP_ROOT_DIR, 'src')
+if SRC_DIR not in sys.path:
+    sys.path.append(SRC_DIR)
 
-LOG_DIR = "agente_spider/data/logs"
-LOG_FILE = os.path.join(LOG_DIR, "spider.log")
+# --- Importar Lógica Core con Fallback a Dummies ---
+CORE_LOGIC_LOADED = False
+try:
+    from core_logic import run_spider
+    CORE_LOGIC_LOADED = True
+    print("INFO (streamlit): core_logic.py cargado exitosamente.")
+except ImportError as e:
+    print(f"ERROR (streamlit): No se pudo importar de 'src/core_logic.py': {e}")
+    # Definir una función dummy para que la app no se rompa
+    async def run_spider(config):
+        st.error("La lógica de scraping real no se pudo cargar. Ejecutando en modo simulación.")
+        await asyncio.sleep(2)
+        return pd.DataFrame([{'nombre_negocio': 'Error al cargar core_logic.py'}])
 
-# Configure Streamlit logging
-STREAMLIT_LOG_FILE = os.path.join(LOG_DIR, "streamlit.log")
+# --- Configuración de Rutas y Logging ---
+CONFIG_DIR = os.path.join(APP_ROOT_DIR, 'config')
+RAW_DATA_DIR = os.path.join(APP_ROOT_DIR, 'data', 'raw')
+LOGS_DIR = os.path.join(APP_ROOT_DIR, 'data', 'logs')
+os.makedirs(RAW_DATA_DIR, exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
+
+# Configurar un logger específico para la UI de Streamlit
+ui_log_file = os.path.join(LOGS_DIR, "streamlit_ui.log")
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.handlers.RotatingFileHandler(STREAMLIT_LOG_FILE, maxBytes=1024 * 1024, backupCount=5)
+        RotatingFileHandler(ui_log_file, maxBytes=512*1024, backupCount=3)
     ]
 )
+ui_logger = logging.getLogger("StreamlitUI")
 
-def save_keywords(city, keywords):
-    """Saves the keywords string to a city-specific CSV file."""
-    keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city}.csv")
-    with open(keywords_file, "w") as f:
-        f.write(keywords)
-
-async def main():
-    """
-    Main function to run the Streamlit application for the Spider agent.
-    """
-    st.set_page_config(layout="wide")
-
-    # Ensure necessary directories exist
-    os.makedirs(RAW_DATA_DIR, exist_ok=True)
-    os.makedirs(LOG_DIR, exist_ok=True)
-
-    # --- Sidebar (Configuration for Scraping) ---
-    st.sidebar.header("🕷️ Configuración de Scraping")
-
-    # Load cities from cities.json
-    cities = {}
+# --- Funciones de Ayuda ---
+@st.cache_data # Cachear para no recargar en cada rerun
+def load_cities_from_json(file_path):
     try:
-        with open(CITIES_FILE, 'r') as f:
-            cities = json.load(f)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        st.sidebar.warning(f"'{CITIES_FILE}' not found or is empty. Please add city data.")
+        st.sidebar.error(f"No se pudo cargar '{os.path.basename(file_path)}'.")
+        return {}
 
-    # Check if cities are loaded (excluding the example data if it exists and is the only entry)
-    if not cities or (len(cities) == 1 and list(cities.keys())[0] == 'Example City'):
-        st.sidebar.info(f"Please populate '{CITIES_FILE}' with your actual city data.")
+def load_keywords_from_csv(city_name):
+    keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city_name.lower()}.csv")
+    if os.path.exists(keywords_file):
+        with open(keywords_file, 'r', encoding='utf-8') as f:
+            return f.read()
+    return "" # Devuelve string vacío si no existe
 
-    city_options = list(cities.keys())
-    selected_cities = st.sidebar.multiselect("Seleccionar Ciudad(es) a Procesar", options=city_options)
+def save_keywords_to_csv(city_name, keywords_str):
+    keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city_name.lower()}.csv")
+    try:
+        with open(keywords_file, "w", encoding='utf-8') as f:
+            f.write(keywords_str)
+        return True
+    except Exception as e:
+        st.error(f"Error al guardar keywords para {city_name}: {e}")
+        return False
 
-    # Use session state to keep track of keyword text area values
-    if 'keyword_values' not in st.session_state:
-        st.session_state.keyword_values = {}
+# --- Función Wrapper para llamar a la lógica asíncrona ---
+def run_async_task(async_func, *args, **kwargs):
+    """Ejecuta una función asíncrona desde un contexto síncrono."""
+    try:
+        # Intenta obtener el bucle de eventos existente, crea uno nuevo si no hay
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # 'There is no current event loop...'
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    return loop.run_until_complete(async_func(*args, **kwargs))
 
-    # Text areas for keywords for selected cities
-    with st.sidebar.expander("Configurar Keywords por Ciudad"):
-        for city in selected_cities:
-            # Load existing keywords if not already in session state
-            if city not in st.session_state.keyword_values:
-                keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city}.csv")
-                initial_keywords = ""
-                if os.path.exists(keywords_file):
-                    with open(keywords_file, 'r') as f:
-                        try:
-                            initial_keywords = f.read()
-                        except Exception as e:
-                            # Display error related to file reading in the main area
-                            st.error(f"Error al leer las palabras clave para {city} desde el archivo: {e}")
-                st.session_state.keyword_values[city] = initial_keywords
 
-            # Display the text area and update session state on change
-            st.session_state.keyword_values[city] = st.text_area(
-                f"Keywords para {city}", 
-                value=st.session_state.keyword_values.get(city, ""), 
-                height=100, 
-                key=f"keywords_{city}_text"
-            )
+# --- UI Principal ---
+st.set_page_config(page_title="Agente Spider", layout="wide")
 
-            if st.button(f"Guardar Keywords para {city}", key=f"save_button_{city}"):
-                save_keywords(city, st.session_state.keyword_values[city])
-                st.success(f"Palabras clave guardadas para {city}.")
+st.title("🚀✨ Agente Spider - Generador de CSVs Crudos")
+st.markdown("Configura y ejecuta tareas de scraping para generar leads.")
 
-    # Options for Scraping (Depth and Emails)
-    depth = st.sidebar.slider("Profundidad de Búsqueda (depth)", min_value=1, max_value=20, value=5)
-    extract_emails = st.sidebar.checkbox("¿Extraer Emails?", value=True)
+# Inicializar session_state
+if 'scraping_results' not in st.session_state:
+    st.session_state.scraping_results = None
 
-    if st.sidebar.button("🚀 Iniciar Scraping"):
+# --- Sidebar ---
+with st.sidebar:
+    st.header("🕷️ Configuración de Scraping")
+    
+    cities_file_path = os.path.join(CONFIG_DIR, "cities.json")
+    all_cities_data = load_cities_from_json(cities_file_path)
+    city_options = list(all_cities_data.keys())
+    
+    selected_cities = st.multiselect("Seleccionar Ciudad(es)", options=city_options)
+
+    # Text areas para keywords
+    keywords_config = {}
+    if selected_cities:
+        with st.expander("Configurar Keywords", expanded=True):
+            for city in selected_cities:
+                keywords_config[city] = st.text_area(
+                    f"Keywords para {city}",
+                    value=load_keywords_from_csv(city),
+                    height=100,
+                    key=f"keywords_{city}"
+                )
+                if st.button(f"Guardar para {city}", key=f"save_{city}"):
+                    if save_keywords_to_csv(city, keywords_config[city]):
+                        st.success(f"Keywords guardadas para {city}.")
+
+    depth = st.slider("Profundidad de Búsqueda", 1, 10, 1)
+    extract_emails = st.checkbox("¿Extraer Emails?", value=False) # Desactivado por defecto para spider
+
+    if st.button("🚀 Iniciar Scraping", type="primary", use_container_width=True):
         if not selected_cities:
-            st.sidebar.warning("Please select at least one city to start scraping.")
+            st.warning("Por favor, selecciona al menos una ciudad.")
+        elif not CORE_LOGIC_LOADED:
+            st.error("La lógica de scraping no está disponible. Revisa los logs de la consola.")
         else:
-            config = {
+            # Construir el diccionario de configuración para `run_spider`
+            final_config = {
                 "cities": selected_cities,
                 "keywords": {},
+                "depth": depth,
+                "extract_emails": extract_emails
             }
-            for city in selected_cities:
-                # Get keywords from the text area state
-                # st.session_state provides access to the current state of widgets
-                keywords_key = f"keywords_{city}_text"
-                if keywords_key in st.session_state:
-                    # Split by lines and filter empty ones
-                    config["keywords"][city] = [line.strip() for line in st.session_state[keywords_key].splitlines() if line.strip()]
-                else:
-                    # If session state is not available for some reason, try loading from file as a fallback
-                    keywords_file = os.path.join(CONFIG_DIR, f"keywords_{city}.csv")
-                    if os.path.exists(keywords_file):
-                        try:
-                            with open(keywords_file, 'r') as f:  # Use 'r' for reading text files
-                                config["keywords"][city] = [line.strip() for line in f if line.strip()]  # Read line by line
-                        except Exception as e:
-                            st.error(f"Error reading keywords for {city} from file: {e}")  # Use st.error in main area
-                    # Handle case where keywords are not in session state and file read failed
-                    if city not in config["keywords"]:
-                        config["keywords"][city] = []  # Ensure city has an empty keyword list if loading fails
-            
-            config["depth"] = depth
-            config["extract_emails"] = extract_emails
+            for city, keywords_str in keywords_config.items():
+                final_config["keywords"][city] = [line.strip() for line in keywords_str.splitlines() if line.strip()]
 
-            # Placeholder for displaying scraping status in main area
-            scraping_status_placeholder = st.empty()
-            with st.spinner("Scraping iniciado..."):
-                try:  # Wrap the scraping logic in try-except for better error reporting
-                    scraped_data = await run_spider(config)  # Call the scraping function
-                    st.success("Scraping completado!")  # Success message
-                except Exception as e:  # Catch any exceptions during scraping
-                    st.error(f"Error durante el scraping: {e}")  # Display error message in main area
+            ui_logger.info(f"Iniciando scraping con config: {final_config}")
+            with st.spinner("Scraping en progreso... Esto puede tardar varios minutos."):
+                try:
+                    # Usar el wrapper para llamar a la función asíncrona
+                    results_df = run_async_task(run_spider, final_config)
+                    st.session_state.scraping_results = results_df # Guardar resultados en session_state
+                    st.success("¡Scraping completado!")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"Ocurrió un error crítico durante el scraping: {e}")
+                    ui_logger.error(f"Error crítico en run_spider: {e}", exc_info=True)
+                    st.session_state.scraping_results = None # Limpiar resultados en caso de error
 
-            if 'scraped_data' in locals():
-                if not scraped_data.empty:
-                    scraping_status_placeholder.success("Scraping completado!")
+# --- Área Principal ---
+tab_resultados, tab_logs = st.tabs(["📊 Resultados de Scraping", "📜 Logs"])
 
-    # --- Main Area (Display Raw Data) ---
-    tab_crudos, tab_logs = st.tabs(["Crudos", "Logs"])
+with tab_resultados:
+    st.header("Resultados")
 
-    # List available raw CSV files
-    with tab_crudos:
-        st.header("Datos Crudos Generados")
-        raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
-
+    # Mostrar los últimos resultados del scraping
+    if st.session_state.scraping_results is not None:
+        st.subheader("Resultados de la Última Ejecución")
+        if not st.session_state.scraping_results.empty:
+            st.dataframe(st.session_state.scraping_results)
+            csv = st.session_state.scraping_results.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+            st.download_button(
+                "📥 Descargar CSV de Última Ejecución",
+                data=csv,
+                file_name=f"spider_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.info("La última ejecución de scraping no devolvió ningún lead.")
+    
+    st.markdown("---")
+    st.subheader("Archivos CSV Crudos Generados Previamente")
+    
+    try:
+        raw_files = sorted([f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")], reverse=True)
         if not raw_files:
-            st.info("No hay archivos CSV crudos generados aún.")
+            st.info("No hay archivos CSV crudos en la carpeta 'data/raw/'.")
         else:
-            selected_file = st.selectbox("Seleccionar archivo crudo para previsualizar:", raw_files)
-            file_path = os.path.join(RAW_DATA_DIR, selected_file)
-            try:
-                df_raw = pd.read_csv(file_path)
-                # Display summary of the DataFrame
-                st.info(f"Archivo: {selected_file} | Filas: {df_raw.shape[0]} | Columnas: {df_raw.shape[1]}")
-            except Exception as e:
-                st.error(f"Error al cargar el archivo CSV '{selected_file}': {e}")
-            st.dataframe(df_raw)
-            st.download_button(label=f"Descargar {selected_file}", data=df_raw.to_csv(index=False), file_name=selected_file, mime="text/csv")
+            selected_file = st.selectbox("Seleccionar archivo para previsualizar:", raw_files)
+            if selected_file:
+                file_path = os.path.join(RAW_DATA_DIR, selected_file)
+                try:
+                    df_preview = pd.read_csv(file_path)
+                    st.info(f"Archivo: {selected_file} | Filas: {len(df_preview)}")
+                    st.dataframe(df_preview.head(100)) # Mostrar primeras 100 filas
+                    
+                    with open(file_path, "rb") as fp:
+                        st.download_button(label=f"📥 Descargar {selected_file}", data=fp, file_name=selected_file, mime="text/csv")
+                except Exception as e:
+                    st.error(f"Error al cargar '{selected_file}': {e}")
+    except FileNotFoundError:
+        st.warning(f"El directorio '{RAW_DATA_DIR}' no fue encontrado.")
 
-        # Display the scraped data after the run (if available)
-        if 'scraped_data' in locals() and not scraped_data.empty:
-            st.subheader("Últimos Datos Scrapeados (Preview)")
-            st.dataframe(scraped_data)
-
-    with tab_logs:
-        st.header("Registros de Ejecución")
-        if os.path.exists(LOG_FILE):
-            with open(LOG_FILE, "r") as f:
-                log_content = f.read()
-            st.text_area("Contenido del Log", log_content, height=400)
-        else:
-            st.info("Log file not found.")
-
-
-if __name__ == "__main__":
-    # Esto ejecuta la función principal asíncrona
-    asyncio.run(main())
+with tab_logs:
+    st.header("Registros de Ejecución")
+    
+    log_file_to_show = os.path.join(LOGS_DIR, 'spider_core.log') # Mostrar el log del core logic
+    st.info(f"Mostrando últimas 500 líneas de: {log_file_to_show}")
+    
+    if os.path.exists(log_file_to_show):
+        try:
+            with open(log_file_to_show, "r", encoding='utf-8', errors='ignore') as f:
+                log_content = "".join(f.readlines()[-500:]) # Leer últimas 500 líneas
+            st.code(log_content, language='log')
+        except Exception as e:
+            st.error(f"Error al leer el archivo de log: {e}")
+    else:
+        st.info("El archivo de log principal ('spider_core.log') no se ha creado aún.")

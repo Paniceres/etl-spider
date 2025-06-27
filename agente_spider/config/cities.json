@@ -1,6 +1,18 @@
-"gmaps_coordinates": {
-    "neuquen": { "latitude": -38.9516, "longitude": -68.0591, "radius": 10000, "zoom": 14 },
-    "cipolletti": { "latitude": -38.9347, "longitude": -67.9908, "radius": 8000, "zoom": 14 },
-    "general_roca": { "latitude": -39.0332, "longitude": -67.5887, "radius": 8000, "zoom": 14 },
-    "allen": { "latitude": -38.9739, "longitude": -67.7496, "radius": 5000, "zoom": 15 }
+{
+  "neuquen": {
+    "latitude": -38.9516,
+    "longitude": -68.0591
+  },
+  "cipolletti": {
+    "latitude": -38.9347,
+    "longitude": -67.9908
+  },
+  "general_roca": {
+    "latitude": -39.0332,
+    "longitude": -67.5887
+  },
+  "allen": {
+    "latitude": -38.9739,
+    "longitude": -67.7496
+  }
 }

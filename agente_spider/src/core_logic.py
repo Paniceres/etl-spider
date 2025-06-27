@@ -7,105 +7,130 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime
 import asyncio
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, unquote, urljoin
+from urllib.parse import urljoin
 
+# Se asume que 'spider-rs' ya está instalado correctamente
 from spider_rs import Website
 
-# --- Configuración de Logging ---
-# (Asumimos que el script que llama a este módulo creará estos directorios)
-LOG_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'logs')
-os.makedirs(LOG_DIR, exist_ok=True)
+# --- NO CREAR UN LOGGER GLOBAL AQUÍ ---
+# La instancia del logger se pasará como argumento a las funciones.
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        RotatingFileHandler(os.path.join(LOG_DIR, 'spider_core.log'), maxBytes=1024*1024, backupCount=5),
-        logging.StreamHandler() # Añadido para ver logs en la consola
-    ]
-)
-logger = logging.getLogger(__name__)
+# --- CLASE DE LOGGER ESTILIZADO ---
+# Esta clase se importará y se instanciará en app_streamlit.py
+class StyledLogger:
+    def __init__(self, logger_name='CoreLogic', log_file_path='spider_core.log', level=logging.INFO):
+        self.logger = logging.getLogger(logger_name)
+        
+        # Evitar añadir handlers si ya existen (importante para Streamlit)
+        if not self.logger.handlers: 
+            self.logger.setLevel(level)
+            self.logger.propagate = False 
+
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+            try:
+                log_dir = os.path.dirname(log_file_path)
+                if log_dir: os.makedirs(log_dir, exist_ok=True)
+                
+                # Usar RotatingFileHandler para evitar que los logs crezcan indefinidamente
+                fh = RotatingFileHandler(log_file_path, maxBytes=1024*1024, backupCount=3, encoding='utf-8')
+                fh.setFormatter(formatter)
+                self.logger.addHandler(fh)
+            except Exception as e:
+                print(f"ERROR CRITICO (StyledLogger): No se pudo crear FileHandler para '{log_file_path}'. Error: {e}")
+        
+        # Estilos para los logs
+        self.SECTION_SEPARATOR = "=" * 70
+        self.SUB_SECTION_SEPARATOR = "-" * 50
+        self.SUCCESS_ART = "[OK]"
+        self.ERROR_ART = "[FAIL]"
+        self.WARNING_ART = "[WARN]"
+        self.INFO_ART = "[INFO]"
+
+    def _log(self, level, message, art=""):
+        self.logger.log(level, f"{art} {message}".strip())
+
+    def section(self, title): self._log(logging.INFO, f"\n{self.SECTION_SEPARATOR}\n{str(title).upper()}\n{self.SECTION_SEPARATOR}", art="")
+    def subsection(self, title): self._log(logging.INFO, f"\n{self.SUB_SECTION_SEPARATOR}\n{str(title)}\n{self.SUB_SECTION_SEPARATOR}", art="")
+    def info(self, message): self._log(logging.INFO, message, self.INFO_ART)
+    def success(self, message): self._log(logging.INFO, message, self.SUCCESS_ART)
+    def warning(self, message): self._log(logging.WARNING, message, self.WARNING_ART)
+    def error(self, message, exc_info=False):
+        self._log(logging.ERROR, message, self.ERROR_ART)
+        if exc_info: self.logger.exception("Detalles de la excepción:")
+
 
 # --- CLASE 1: Suscripción para la Página de BÚSQUEDA ---
-# Objetivo: Encontrar los links a las páginas de detalle de cada negocio.
 class SearchPageSubscription:
-    def __init__(self, detail_urls_list: list):
+    def __init__(self, detail_urls_list: list, logger_instance: StyledLogger):
         self.detail_urls_list = detail_urls_list
-        logger.info("SearchPageSubscription creada para recolectar URLs de detalle.")
+        self.logger = logger_instance
+        self.logger.info("SearchPageSubscription creada.")
 
     async def __call__(self, page):
         if page.status_code != 200:
-            logger.warning(f"Página de búsqueda {page.url} devolvió status {page.status_code}.")
+            self.logger.warning(f"Página de búsqueda {page.url} devolvió status {page.status_code}.")
             return
 
         try:
             soup = BeautifulSoup(page.text, 'html.parser')
-            # Selector para los links de los resultados. Google Maps usa <a> con href que contiene /maps/place/
-            # El selector puede variar. Este es un ejemplo común.
             link_elements = soup.select('a[href*="/maps/place/"]') 
             
             found_count = 0
             for link_element in link_elements:
                 relative_url = link_element.get('href')
                 if relative_url:
-                    # Construir la URL absoluta
                     absolute_url = urljoin("https://www.google.com", relative_url)
                     if absolute_url not in self.detail_urls_list:
                         self.detail_urls_list.append(absolute_url)
                         found_count += 1
             
-            logger.info(f"Encontradas {found_count} nuevas URLs de detalle en {page.url}")
+            if found_count > 0:
+                self.logger.info(f"Encontradas {found_count} nuevas URLs de detalle en {page.url}")
 
         except Exception as e:
-            logger.error(f"Error parseando la página de búsqueda {page.url}: {e}", exc_info=True)
+            self.logger.error(f"Error parseando la página de búsqueda {page.url}: {e}", exc_info=True)
 
 
 # --- CLASE 2: Suscripción para la Página de DETALLE ---
-# Objetivo: Extraer los datos finales (nombre, dirección, etc.) de una página de negocio.
 class DetailPageSubscription:
-    def __init__(self, collected_items_list: list):
+    def __init__(self, collected_items_list: list, logger_instance: StyledLogger):
         self.collected_items = collected_items_list
-        # Los selectores CSS son ahora fijos porque solo scrapeamos páginas de detalle
+        self.logger = logger_instance
         self.parsing_rules = {
-            "nombre_negocio": "h1.DUwDvf.lfPIob",
-            "direccion": "button[data-item-id='address'] div.Io6YTe", # Selector más específico para el botón de dirección
-            "telefono": "button[data-item-id^='phone:tel:'] div.Io6YTe", # Selector para el botón de teléfono
-            "sitio_web": "a[data-item-id='authority'] div.Io6YTe", # Selector para el botón de sitio web
-            "categoria": "button[jsaction*='category']", # Selector para el botón de categoría
-            # Podemos añadir más reglas aquí...
+            "nombre_negocio": "h1", # El h1 principal suele ser el nombre
+            "direccion": "button[data-item-id='address'] div.Io6YTe",
+            "telefono": "button[data-item-id^='phone:tel:'] div.Io6YTe",
+            "sitio_web": "a[data-item-id='authority'] div.Io6YTe",
+            "categoria": "button[jsaction*='category']",
         }
-        logger.info("DetailPageSubscription creada para extraer datos de negocios.")
+        self.logger.info("DetailPageSubscription creada.")
 
     async def __call__(self, page):
         if page.status_code != 200:
-            logger.warning(f"Página de detalle {page.url} devolvió status {page.status_code}.")
+            self.logger.warning(f"Página de detalle {page.url} devolvió status {page.status_code}.")
             return
-
         try:
             soup = BeautifulSoup(page.text, 'html.parser')
             extracted_data = {}
             
             for key, selector in self.parsing_rules.items():
                 element = soup.select_one(selector)
-                if element:
-                    extracted_data[key] = element.get_text(strip=True)
-                else:
-                    extracted_data[key] = None
+                extracted_data[key] = element.get_text(strip=True) if element else None
             
-            # Añadir la URL de la cual se extrajeron los datos
             extracted_data['url_gmaps'] = page.url
 
             if extracted_data.get("nombre_negocio"):
                 self.collected_items.append(extracted_data)
-                logger.success(f"Item recolectado: '{extracted_data['nombre_negocio']}' desde {page.url}")
+                self.logger.success(f"Item recolectado: '{extracted_data['nombre_negocio']}'")
             else:
-                logger.warning(f"No se extrajo nombre de negocio de {page.url}")
+                self.logger.warning(f"No se extrajo nombre de negocio de {page.url}")
 
         except Exception as e:
-            logger.error(f"Error parseando la página de detalle {page.url}: {e}", exc_info=True)
+            self.logger.error(f"Error parseando la página de detalle {page.url}: {e}", exc_info=True)
 
 # --- Funciones de Ayuda ---
-def generate_search_urls(cities: list, keywords_by_city: dict) -> list[str]:
+def generate_search_urls(cities: list, keywords_by_city: dict, logger_instance: StyledLogger) -> list[str]:
     """Genera las URLs de BÚSQUEDA iniciales."""
     urls = []
     base_url = "https://www.google.com/maps/search/"
@@ -114,79 +139,59 @@ def generate_search_urls(cities: list, keywords_by_city: dict) -> list[str]:
             query = f"{keyword} en {city}"
             encoded_query = "+".join(query.split())
             urls.append(f"{base_url}{encoded_query}")
-    logger.info(f"Generadas {len(urls)} URLs de búsqueda iniciales.")
+    logger_instance.info(f"Generadas {len(urls)} URLs de búsqueda iniciales.")
     return urls
 
 # --- Función Principal Asíncrona `run_spider` ---
-async def run_spider(config: dict) -> pd.DataFrame:
+async def run_spider(config: dict, logger_instance: StyledLogger) -> pd.DataFrame:
     """
-    Orquesta el proceso de scraping en dos fases:
-    1. Scrapea las páginas de búsqueda para obtener links a los detalles.
-    2. Scrapea las páginas de detalle para extraer los datos finales.
+    Orquesta el proceso de scraping en dos fases. Acepta una instancia de logger.
     """
-    logger.info(f"Iniciando run_spider con config: {config}")
-
-    # --- FASE 1: OBTENER URLs DE DETALLE ---
-    logger.section("FASE 1: Recolectando URLs de Negocios")
-    search_urls = generate_search_urls(config.get('cities', []), config.get('keywords', {}))
+    logger_instance.info(f"Iniciando run_spider con config: {config}")
+    
+    # FASE 1: OBTENER URLs DE DETALLE
+    logger_instance.section("FASE 1: Recolectando URLs de Negocios")
+    search_urls = generate_search_urls(config.get('cities', []), config.get('keywords', {}), logger_instance)
     if not search_urls:
-        logger.warning("No se generaron URLs de búsqueda. Finalizando.")
+        logger_instance.warning("No se generaron URLs de búsqueda. Finalizando.")
         return pd.DataFrame()
 
     detail_urls_to_scrape = []
-    search_subscription = SearchPageSubscription(detail_urls_to_scrape)
+    search_subscription = SearchPageSubscription(detail_urls_to_scrape, logger_instance)
     
-    # Crear tareas para la Fase 1
-    search_tasks = []
-    for url in search_urls:
-        website_instance = Website(url, False) # No seguir links externos en la búsqueda
-        # Configuración para que el spider sea más "profundo" en la página de búsqueda si es necesario
-        # Esto depende de las capacidades de spider-rs, como manejar scrolls o clicks
-        # website_instance.set_depth(config.get('depth', 1)) # Ejemplo conceptual
-        search_tasks.append(website_instance.crawl(search_subscription))
+    search_tasks = [Website(url, False).crawl(search_subscription) for url in search_urls]
     
-    logger.info(f"Ejecutando {len(search_tasks)} tareas de búsqueda...")
+    logger_instance.info(f"Ejecutando {len(search_tasks)} tareas de búsqueda...")
     await asyncio.gather(*search_tasks)
-    logger.success(f"Fase 1 completada. Total de URLs de detalle únicas encontradas: {len(detail_urls_to_scrape)}")
+    logger_instance.success(f"Fase 1 completada. URLs de detalle únicas encontradas: {len(detail_urls_to_scrape)}")
 
     if not detail_urls_to_scrape:
-        logger.warning("No se encontraron URLs de detalle. No se puede proceder a la Fase 2.")
+        logger_instance.warning("No se encontraron URLs de detalle. No se puede proceder a la Fase 2.")
         return pd.DataFrame()
 
-    # --- FASE 2: SCRAPEAR DATOS DE LAS URLs DE DETALLE ---
-    logger.section("FASE 2: Extrayendo Datos de los Negocios")
-    
+    # FASE 2: SCRAPEAR DATOS DE LAS URLs DE DETALLE
+    logger_instance.section("FASE 2: Extrayendo Datos de los Negocios")
     final_collected_items = []
-    detail_subscription = DetailPageSubscription(final_collected_items)
+    detail_subscription = DetailPageSubscription(final_collected_items, logger_instance)
 
-    # Crear tareas para la Fase 2
-    detail_tasks = []
-    for url in detail_urls_to_scrape:
-        # Aquí podrías querer habilitar la extracción de emails, lo que implicaría que
-        # spider-rs siga el link del sitio web del negocio. Esto es más avanzado.
-        # Por ahora, nos enfocamos en los datos de la página de Gmaps.
-        website_instance = Website(url, False) # No seguir links a sitios web externos por ahora
-        detail_tasks.append(website_instance.crawl(detail_subscription))
+    # Limitar el número de URLs a scrapear en la fase de detalle para pruebas rápidas
+    # Puedes comentar esta línea para procesar todo
+    detail_urls_to_scrape = detail_urls_to_scrape[:50] 
+    logger_instance.info(f"Procesando las primeras {len(detail_urls_to_scrape)} URLs de detalle.")
+    
+    detail_tasks = [Website(url, False).crawl(detail_subscription) for url in detail_urls_to_scrape]
 
-    logger.info(f"Ejecutando {len(detail_tasks)} tareas de extracción de detalles...")
+    logger_instance.info(f"Ejecutando {len(detail_tasks)} tareas de extracción de detalles...")
     await asyncio.gather(*detail_tasks)
-    logger.success(f"Fase 2 completada. Total de items finales recolectados: {len(final_collected_items)}")
+    logger_instance.success(f"Fase 2 completada. Items finales recolectados: {len(final_collected_items)}")
 
-    # Convertir a DataFrame y guardar
     df_results = pd.DataFrame(final_collected_items)
     
+    # La responsabilidad de guardar el archivo ahora recae en quien llama a esta función (app_streamlit.py),
+    # pero mantenemos un log para indicar que la data está lista.
     if not df_results.empty:
-        RAW_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw')
-        os.makedirs(RAW_DATA_DIR, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"spider_leads_{timestamp}.csv"
-        file_path = os.path.join(RAW_DATA_DIR, filename)
-        try:
-            df_results.to_csv(file_path, index=False, encoding='utf-8-sig') # utf-8-sig para Excel
-            logger.info(f"Resultados guardados en: {file_path}")
-        except Exception as e:
-            logger.error(f"Error al guardar el archivo CSV final: {e}", exc_info=True)
+        logger_instance.info(f"Proceso de scraping finalizado. Se devuelven {len(df_results)} registros.")
     else:
-        logger.info("No se recolectaron datos finales. No se guardó ningún archivo.")
+        logger_instance.info("No se recolectaron datos finales.")
 
     return df_results

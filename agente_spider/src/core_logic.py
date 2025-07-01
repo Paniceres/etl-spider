@@ -10,9 +10,9 @@ from urllib.parse import urljoin
 
 from spider_rs import Website
 
-# --- Clase StyledLogger (sin cambios) ---
+# --- StyledLogger Class (Sin cambios) ---
 class StyledLogger:
-    def __init__(self, logger_name='CoreLogicLogger', log_file_path='spider_core.log', level=logging.INFO):
+    def __init__(self, logger_name='CoreLogic', log_file_path='spider_core.log', level=logging.INFO):
         self.logger = logging.getLogger(logger_name)
         if not self.logger.handlers: 
             self.logger.setLevel(level)
@@ -37,27 +37,22 @@ class StyledLogger:
         self._log(logging.ERROR, message, self.ERROR_ART)
         if exc_info: self.logger.exception("Detalles de la excepción:")
 
-# --- Clases de Suscripción (Ahora son síncronas) ---
+# --- Clases de Suscripción (Sin cambios) ---
 class SearchPageSubscription:
     def __init__(self, detail_urls_list: list, logger_instance: StyledLogger):
         self.detail_urls_list = detail_urls_list
         self.logger = logger_instance
-        self.logger.info("SearchPageSubscription creada.")
-    
-    def __call__(self, page): # quitamos 'async'
-        if page.status_code != 200:
-            self.logger.warning(f"Página de búsqueda {page.url} devolvió status {page.status_code}.")
-            return
+    def __call__(self, page):
+        if page.status_code != 200: return
         try:
-            soup = BeautifulSoup(page.text, 'html.parser')
+            soup = BeautifulSoup(page.html, 'html.parser') # .html en lugar de .text
             link_elements = soup.select('a[href*="/maps/place/"]')
             found_count = 0
             for link_element in link_elements:
-                relative_url = link_element.get('href')
-                if relative_url:
-                    absolute_url = urljoin("https://www.google.com", relative_url)
-                    if absolute_url not in self.detail_urls_list:
-                        self.detail_urls_list.append(absolute_url)
+                href = link_element.get('href')
+                if href and href.startswith('http'): # Asegurarse de que sea una URL completa
+                    if href not in self.detail_urls_list:
+                        self.detail_urls_list.append(href)
                         found_count += 1
             if found_count > 0: self.logger.info(f"Encontradas {found_count} nuevas URLs de detalle en {page.url}")
         except Exception as e:
@@ -68,14 +63,11 @@ class DetailPageSubscription:
         self.collected_items = collected_items_list
         self.logger = logger_instance
         self.parsing_rules = {"nombre_negocio": "h1", "direccion": "button[data-item-id='address'] div.Io6YTe", "telefono": "button[data-item-id^='phone:tel:'] div.Io6YTe", "sitio_web": "a[data-item-id='authority'] div.Io6YTe", "categoria": "button[jsaction*='category']"}
-        self.logger.info("DetailPageSubscription creada.")
 
-    def __call__(self, page): # quitamos 'async'
-        if page.status_code != 200:
-            self.logger.warning(f"Página de detalle {page.url} devolvió status {page.status_code}.")
-            return
+    def __call__(self, page):
+        if page.status_code != 200: return
         try:
-            soup = BeautifulSoup(page.text, 'html.parser')
+            soup = BeautifulSoup(page.html, 'html.parser') # .html en lugar de .text
             extracted_data = {}
             for key, selector in self.parsing_rules.items():
                 element = soup.select_one(selector)
@@ -87,7 +79,7 @@ class DetailPageSubscription:
         except Exception as e:
             self.logger.error(f"Error parseando página de detalle {page.url}: {e}", exc_info=True)
 
-# --- Funciones de Ayuda (sin cambios) ---
+# --- Funciones de Ayuda (Sin cambios) ---
 def generate_search_urls(cities: list, keywords_by_city: dict, logger_instance: StyledLogger) -> list[str]:
     urls = []
     base_url = "https://www.google.com/maps/search/"
@@ -99,7 +91,7 @@ def generate_search_urls(cities: list, keywords_by_city: dict, logger_instance: 
     logger_instance.info(f"Generadas {len(urls)} URLs de búsqueda.")
     return urls
 
-# --- Función Principal SÍNCRONA `run_spider` (MODIFICADA) ---
+# --- Función Principal SÍNCRONA `run_spider` (CORREGIDA) ---
 def run_spider(config: dict, logger_instance: StyledLogger) -> pd.DataFrame:
     logger_instance.info(f"Iniciando run_spider con config: {config}")
     
@@ -113,12 +105,11 @@ def run_spider(config: dict, logger_instance: StyledLogger) -> pd.DataFrame:
     detail_urls_to_scrape = []
     search_subscription = SearchPageSubscription(detail_urls_to_scrape, logger_instance)
     
-    # Crear una instancia de Website para TODAS las URLs de búsqueda
-    website_search = Website(search_urls, False) # Pasar la lista completa
-    # Configurar el scraper
-    website_search.set_depth(config.get('depth', 1)) # Usar la profundidad de la config
+    # CORRECCIÓN: Iterar y crear una instancia de Website por cada URL de búsqueda
     logger_instance.info(f"Ejecutando crawl en {len(search_urls)} URLs de búsqueda...")
-    website_search.crawl(search_subscription) # Esta llamada es bloqueante y maneja la concurrencia internamente
+    for url in search_urls:
+        website_search = Website(url, False) # UNA instancia por URL
+        website_search.crawl(search_subscription) # Esta llamada es bloqueante
     
     logger_instance.success(f"Fase 1 completada. URLs de detalle encontradas: {len(detail_urls_to_scrape)}")
 
@@ -131,18 +122,29 @@ def run_spider(config: dict, logger_instance: StyledLogger) -> pd.DataFrame:
     detail_subscription = DetailPageSubscription(final_collected_items, logger_instance)
     
     # Limitar para pruebas si es necesario
-    detail_urls_to_scrape_subset = detail_urls_to_scrape[:50]
+    detail_urls_to_scrape_subset = detail_urls_to_scrape[:50] 
     logger_instance.info(f"Procesando las primeras {len(detail_urls_to_scrape_subset)} URLs de detalle.")
     
-    website_detail = Website(detail_urls_to_scrape_subset, False)
+    # CORRECCIÓN: Iterar y crear una instancia de Website por cada URL de detalle
     logger_instance.info(f"Ejecutando crawl en {len(detail_urls_to_scrape_subset)} URLs de detalle...")
-    website_detail.crawl(detail_subscription)
-    
+    for url in detail_urls_to_scrape_subset:
+        website_detail = Website(url, False) # UNA instancia por URL
+        
+        # Aquí es donde el parámetro 'depth' de la UI tendría efecto
+        # Y también la extracción de emails
+        # Si se activan emails, necesitamos seguir el link al sitio web del negocio (profundidad 1)
+        if config.get('extract_emails', False):
+            website_detail.set_depth(1) # Ir un nivel más profundo desde la página de detalle
+            logger_instance.info(f"Profundidad establecida a 1 para {url} para buscar emails.")
+        
+        website_detail.crawl(detail_subscription)
+
     logger_instance.success(f"Fase 2 completada. Items finales recolectados: {len(final_collected_items)}")
 
     df_results = pd.DataFrame(final_collected_items)
     
     if not df_results.empty:
+        # Guardado del archivo se maneja en app_streamlit.py ahora
         logger_instance.info(f"Proceso de scraping finalizado. Se devuelven {len(df_results)} registros.")
     else:
         logger_instance.info("No se recolectaron datos finales.")

@@ -1,0 +1,121 @@
+name: Build & Publish Wheels (maturin)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  sdist:
+    name: Build sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist/*
+
+  wheels:
+    name: Build wheels (${{ matrix.os }} • ${{ matrix.target }} • py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          # Linux manylinux (glibc)
+          - os: ubuntu-latest
+            target: x86_64
+            manylinux: auto
+
+          # Linux musllinux (musl) => produces musllinux wheels
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+
+          # macOS
+          - os: macos-latest
+            target: x86_64
+            manylinux: auto
+          - os: macos-latest
+            target: aarch64
+            manylinux: auto
+
+          # Windows
+          - os: windows-latest
+            target: x64
+            manylinux: auto
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        env:
+          # Ensure macOS wheels are broadly compatible
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        with:
+          command: build
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          # Force maturin to use ONLY the Python we installed (prevents picking system Python 3.14)
+          args: >-
+            --release
+            --out dist
+            --strip
+            --interpreter python
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}-${{ matrix.target }}-py${{ matrix.python-version }}
+          path: dist/*
+
+  publish:
+    name: Publish to PyPI
+    needs: [sdist, wheels]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download all dists
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Flatten dist folder
+        shell: bash
+        run: |
+          mkdir -p dist
+          find dist-artifacts -type f \( -name "*.whl" -o -name "*.tar.gz" \) -print -exec cp {} dist/ \;
+          ls -la dist
+
+      # NOTE: Use PyPI publish action here (no Cargo.toml needed, no docker build step)
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true

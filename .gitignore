@@ -1,3 +1,10 @@
 data/
 __pycache__/
 *.pyc
+.venv/
+target/
+*.csv
+.DS_Store
+*.egg-info/
+build/
+dist/

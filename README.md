@@ -1,86 +1,90 @@
-# spider-py
+# ETL Spider 🕷️🕸️
 
-The [spider](https://github.com/spider-rs/spider) project ported to Python.
+¡Bienvenido a **ETL Spider**! 
+Este proyecto es una herramienta súper rápida diseñada para "navegar" o "rastrear" páginas web de forma automática (lo que en el mundo tecnológico se conoce como un *web scraper* o *spider*).
 
-## Getting Started
+**¿Para qué sirve?**
+Imagina que necesitas leer miles de páginas de un sitio web para recopilar información. Hacerlo a mano te tomaría días o meses. Este "spider" lo hace por ti en cuestión de minutos, extrae los enlaces y la información que necesitas, y guarda todo de forma organizada. 
+
+Originalmente, este proyecto es una adaptación para **Python** del rapidísimo motor [spider-rs](https://github.com/spider-rs/spider) (construido en Rust). Esto significa que combina la facilidad de uso de Python con la velocidad extrema de Rust. ¡Es una de las herramientas más rápidas en su tipo!
+
+---
+
+## Para Usuarios Técnicos 🛠️
+
+A continuación, encontrarás las instrucciones detalladas para instalar, usar y contribuir al desarrollo de esta herramienta.
+
+### Primeros Pasos
+
+La forma más fácil de instalar es usando pip:
 
 1. `pip install spider_rs`
 
+**Ejemplo de uso básico en Python:**
 
 ```python
 import asyncio
-
 from spider_rs import Website
 
 async def main():
+    # Definimos el sitio web que queremos rastrear
     website = Website("https://choosealicense.com")
+    # Iniciamos el rastreo
     website.crawl()
+    # Imprimimos los enlaces encontrados
     print(website.get_links())
 
+# Ejecutamos la función principal
 asyncio.run(main())
 ```
 
-View the [examples](./examples/) to learn more.
+Consulta la carpeta de [ejemplos](./examples/) para aprender sobre usos más avanzados.
 
-## Development
+### Desarrollo Local
 
-Install maturin `pipx install maturin` and python.
+Si quieres modificar el código fuente de la herramienta (desarrollo de la librería en sí), sigue estos pasos. Se recomienda encarecidamente utilizar un entorno virtual de Python para aislar las dependencias y evitar conflictos.
 
-1. `maturin develop`
+1. **Instala las herramientas de construcción necesarias:**
+   * **Python**: Asegúrate de tener Python instalado.
+   * **Rust**: Instala Rust a través de `rustup` (https://rustup.rs/). Esto incluirá `cargo`, que es necesario para compilar el código de Rust.
+   * **Maturin**: Instala maturin usando `pipx install maturin` (o `pip install maturin`). Maturin es necesario para construir el paquete de Python desde el código de Rust.
 
-## Benchmarks
-
-View the [benchmarks](./bench/README.md) to see a breakdown between libs and platforms.
-
-Test url: `https://espn.com`
-
-| `libraries`                  | `pages`   | `speed` |
-| :--------------------------- | :-------- | :------ |
-| **`spider(rust): crawl`**    | `150,387` | `1m`    |
-| **`spider(nodejs): crawl`**  | `150,387` | `153s`  |
-| **`spider(python): crawl`**  | `150,387` | `186s`  |
-| **`scrapy(python): crawl`**  | `49,598`  | `1h`    |
-| **`crawlee(nodejs): crawl`** | `18,779`  | `30m`   |
-
-The benches above were ran on a mac m1, spider on linux arm machines performs about 2-10x faster.
-
-## Issues
-
-Please submit a Github issue for any issues found.
-
-## Local Development Setup
-
-To set up the project locally, it's highly recommended to use a Python virtual environment. This helps to isolate project dependencies and avoid conflicts with your system's Python packages.
-
-Follow these steps:
-
-1. Install the necessary build tools:
-
-   * **Python**: Ensure you have Python installed.
-   * **Rust**: Install Rust via rustup (https://rustup.rs/). This will include Cargo, which is required for building the Rust code.
-   * **Maturin**: Install maturin using `pipx install maturin` (or `pip install maturin` if you prefer). Maturin is needed to build the Python package from the Rust code.
-
-2. Create a Python virtual environment:
-
+2. **Crea un entorno virtual de Python:**
    ```bash
    python -m venv .venv
    ```
 
-2. Activate the virtual environment:
-
-   * On macOS and Linux:
-     ```bash
-     source .venv/bin/activate
-     ```
-   * On Windows:
+3. **Activa el entorno virtual:**
+   * En Windows:
      ```bash
      .venv\Scripts\activate
      ```
+   * En macOS y Linux:
+     ```bash
+     source .venv/bin/activate
+     ```
 
-3. Install the project in editable mode with maturin:
-
+4. **Instala el proyecto en modo editable con maturin:**
    ```bash
    maturin develop
    ```
 
+### Rendimiento (Benchmarks)
 
+Puedes ver las [pruebas de rendimiento](./bench/README.md) detalladas para comparar entre diferentes librerías y plataformas.
+
+Prueba con la URL: `https://espn.com`
+
+| `Librería`                   | `Páginas analizadas` | `Tiempo` |
+| :--------------------------- | :------------------- | :------- |
+| **`spider(rust): crawl`**    | `150,387`            | `1m`     |
+| **`spider(nodejs): crawl`**  | `150,387`            | `153s`   |
+| **`spider(python): crawl`**  | `150,387`            | `186s`   |
+| **`scrapy(python): crawl`**  | `49,598`             | `1h`     |
+| **`crawlee(nodejs): crawl`** | `18,779`             | `30m`    |
+
+*Nota: Las pruebas anteriores se ejecutaron en una Mac M1. El "spider" en máquinas Linux ARM funciona de 2 a 10 veces más rápido.*
+
+### Problemas o Bugs (Issues)
+
+Por favor, envía un "Issue" en Github para cualquier error que encuentres en el código original.
